@@ -1,10 +1,11 @@
 
 /*
- * Administración de servidores
+ * Administración de Refrigeración operado en OpenHab
  * Por: Armida González Lorence
- * Fecha: 20 de abril de 2022
+ * Fecha: 30 de mayo de 2022
  * 
- * Programa creado a partir de los programas Botón-Led y Ejemplo DHT11
+ * Programa creado a partir de los programas MQTT_basic y ESP32Cam_Operadores
+ * También me base en el programa de Refrigeración
  * 
  * Características
  *   Sensor de temperatura y humedad
@@ -41,9 +42,9 @@ const char* password = "YolandaC23";  // Aquí debes poner la contraseña de tu 
 
 //Datos del broker MQTT
 //Puse un Broker IP público; para actualizar con: nslookup broker.hivemq.com en terminal ubuntu
-const char* mqtt_server = "3.72.245.49"; 
-const char* topicTemp= "codigoIoT/SIC/G5/temp";
-IPAddress server(3,72,245,49);
+const char* mqtt_server = "192.168.39.131"; //esta es la dirección IP local (la saque en terminal con ifconfig)
+const char* topicTemp= "codigoIoT/SIC/G5/temp"; //Tema en el que se publica la temperatura
+IPAddress server(192,168,39,131);
 
 
 
@@ -51,7 +52,7 @@ IPAddress server(3,72,245,49);
 // Constantes para manejar el DHT11
 #define DHTPIN 12       // Digital pin connected to the DHT sensor
 #define DHTTYPE DHT11   // DHT 11
-#define TemperaturaAlta 30 // Límite de temperatura y que no ocupe memoria
+#define TemperaturaAlta 30 // Límite de temperatura, para acivar la refrigeración Automática (LEDA en pin 4) y que no ocupe memoria
 
 
 const int BOTON1 = 13; // Manual
@@ -124,17 +125,17 @@ void loop() {// Inicio de void loop
 
    // put your main code here, to run repeatedly:
   while (WiFi.status() == WL_CONNECTED) { 
+   
    //Verificar siempre que haya conexión al broker
-  
-  if (!client.connected()) {
+    if (!client.connected()) {
     Serial.println("No esta conectado al broker");
     reconnect();  // En caso de que no haya conexión, ejecutar la función de reconexión, definida despues del void setup ()
-  }// fin del if (!client.connected())
-  client.loop(); // Esta función es muy importante, ejecuta de manera no bloqueante las funciones necesarias para la comunicación con el broker
+    }// fin del if (!client.connected())
+    client.loop(); // Esta función es muy importante, ejecuta de manera no bloqueante las funciones necesarias para la comunicación con el broker
     
-  leeSensor();
-  leeBotones();
-  activaRefrigeraciones();
+  leeSensor();  //En esta función se lee el DHT11 y s publica la temperatura en el tema
+  leeBotones(); //En esta función únicamente se lee el estado de los botones
+  activaRefrigeraciones(); //Según la lectura de los botones, activa la refrigeración según criterios
   }
   } // Fin de void loop
 
@@ -148,7 +149,8 @@ void loop() {// Inicio de void loop
     
     timeNow= millis();
     if (timeNow - timeLast > wait) {
-      timeLast = timeNow; // Actualización de seguimiento de tiempo
+      timeLast = timeNow; // Actualización de seguimiento de tiempo no bloqueante
+      
       t = dht.readTemperature();
       dtostrf(t, 1, 2, dataString);
       Serial.print(F("La temperatura publicada: "));
@@ -157,14 +159,12 @@ void loop() {// Inicio de void loop
       Serial.print(F("En el tópico: "));
       Serial.println(topicTemp);
       client.publish(topicTemp, dataString); // Esta es la función que envía los datos por MQTT
+      
       if (isnan(t)) { // Check if any reads failed and exit early (to try again).
        Serial.println(F("Failed to read from DHT sensor!"));
        return;
      }
     }
-  //Serial.print(F("%  Temperature: "));
-  //Serial.print(t);
-  //Serial.println(F("°C "));
  }
 
  void leeBotones ()
@@ -226,6 +226,8 @@ void callback(char* topic, byte* message, unsigned int length) {
 }// fin del void callback
 
 // Función para reconectarse
+
+
 void reconnect() {
   // Bucle hasta lograr conexión
   Serial.println("Entre a la función reconect");

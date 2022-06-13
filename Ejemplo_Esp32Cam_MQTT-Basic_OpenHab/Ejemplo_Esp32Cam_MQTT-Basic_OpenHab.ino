@@ -43,7 +43,9 @@ const char* password = "YolandaC23";  // Aquí debes poner la contraseña de tu 
 //Datos del broker MQTT
 //Puse un Broker IP público; para actualizar con: nslookup broker.hivemq.com en terminal ubuntu
 const char* mqtt_server = "192.168.39.131"; //esta es la dirección IP local (la saque en terminal con ifconfig)
-const char* topicTemp= "codigoIoT/SIC/G5/temp"; //Tema en el que se publica la temperatura
+const char* topicTemp= "codigoIoT/SIC/G5/temp"; //Tema en el que se publica la temperatura de DHT11
+const char* topicHum= "codigoIoT/SIC/G5/hum"; //Tema en el que se publica la humedad de DHT11
+const char* topicLed= "codigoIoT/SIC/G5/led"; //Tema para leer el switc de activar manual
 IPAddress server(192,168,39,131);
 
 
@@ -52,7 +54,7 @@ IPAddress server(192,168,39,131);
 // Constantes para manejar el DHT11
 #define DHTPIN 12       // Digital pin connected to the DHT sensor
 #define DHTTYPE DHT11   // DHT 11
-#define TemperaturaAlta 30 // Límite de temperatura, para acivar la refrigeración Automática (LEDA en pin 4) y que no ocupe memoria
+#define TemperaturaAlta 32 // Límite de temperatura, para acivar la refrigeración Automática (LEDA en pin 4) y que no ocupe memoria
 
 
 const int BOTON1 = 13; // Manual
@@ -70,8 +72,8 @@ DHT dht(DHTPIN, DHTTYPE);   // Objeto para manejar el DHT11
 
 
 // Variables
-int dato1, dato2, dato3;
-float t, tant=0,timeNow,timeLast=0;
+int dato1=0, dato2=0, dato3=0, l=1;
+float t, h, tant=0,timeNow,timeLast=0;
 int wait = 5000; //Tiempo de espera para madar mensajes por MQTT
 char dataString[8]; // Define una arreglo de caracteres para enviarlos por MQTT, especifica la longitud del mensaje en 8 caracteres
 
@@ -107,9 +109,6 @@ void setup() {// Inicio de void setup ()
   pinMode (LEDA, OUTPUT); // Configurar el pin del led como salida de voltaje
   
   dht.begin(); //Inicialización de la comunicación con el sensor DHT11
-  dato1=0;
-  dato2=0;
-  dato3=0;
 
   // Conexión con el broker MQTT
   client.setServer(server, 1883); // Conectarse a la IP del broker en el puerto indicado
@@ -150,16 +149,30 @@ void loop() {// Inicio de void loop
     timeNow= millis();
     if (timeNow - timeLast > wait) {
       timeLast = timeNow; // Actualización de seguimiento de tiempo no bloqueante
-      
+      Serial.println(F("-----"));
+      //Primero lee y manda Temperatura
       t = dht.readTemperature();
       dtostrf(t, 1, 2, dataString);
-      Serial.print(F("La temperatura publicada: "));
+      Serial.print(F("La temperatura publicada: "));      
       Serial.print(dataString);
-      Serial.println(F(" °C "));
+      Serial.print(F(" °C , "));
       Serial.print(F("En el tópico: "));
       Serial.println(topicTemp);
       client.publish(topicTemp, dataString); // Esta es la función que envía los datos por MQTT
       
+      delay(100);
+      //Segundo lee y manda Humedad
+      h = dht.readHumidity();
+      dtostrf(h, 1, 2, dataString);
+      Serial.print(F("La humedad publicada    : "));
+      Serial.print(dataString);
+      Serial.print(F(" hum, "));
+      Serial.print(F("En el tópico: "));
+      Serial.println(topicHum);
+      client.publish(topicHum, dataString); // Esta es la función que envía los datos por MQTT
+
+      
+
       if (isnan(t)) { // Check if any reads failed and exit early (to try again).
        Serial.println(F("Failed to read from DHT sensor!"));
        return;
@@ -188,8 +201,13 @@ void loop() {// Inicio de void loop
   digitalWrite (LEDA, LOW);}
   
   //Para activar la refrigeración Manual
-  digitalWrite (LEDM, !dato1); //Prender el led Refrigeración automática
+  if (!dato1 || !l)
+  {
+  digitalWrite (LEDM, HIGH); //Prender el led Refrigeración manual
   delay (200);
+  } else {
+    digitalWrite (LEDM, LOW); //Prender el led Refrigeración manual
+  delay (200);}
    
   // Alta demanda o sobre carga, se activa la refrigeración automática
   if (!dato2 || !dato3) {
@@ -204,30 +222,39 @@ void callback(char* topic, byte* message, unsigned int length) {
   // Concatenar los mensajes recibidos para conformarlos como una varialbe String
   String messageTemp; // Se declara la variable en la cual se generará el mensaje completo  
   for (int i = 0; i < length; i++) {  // Se imprime y concatena el mensaje
-    Serial.print((char)message[i]);
     messageTemp += (char)message[i];
   }
+  String messageHum; // Se declara la variable en la cual se generará el mensaje completo  
+  for (int i = 0; i < length; i++) {  // Se imprime y concatena el mensaje
+    messageHum += (char)message[i];
+  }
+  String messageLed; // Se declara la variable en la cual se generará el mensaje completo  
+  for (int i = 0; i < length; i++) {  // Se imprime y concatena el mensaje
+    messageLed += (char)message[i];
+   
+  }
+  //* Se comprueba que el mensaje se haya concatenado correctamente
+  //Serial.println();
+  //Serial.print ("Mensaje LED concatenado en una sola variable: ");
+  //Serial.println (messageTemp);
+  
 
-  // Se comprueba que el mensaje se haya concatenado correctamente
-  Serial.println();
-  Serial.print ("Mensaje concatenado en una sola variable: ");
-  Serial.println (messageTemp);
+  // En esta parte puedes agregar las funciones que requieras para actuar según lo necesites al recibir un mensaje MQTT
 
-  // En esta parte puedes agregar las funciones que requieras para actuar segun lo necesites al recibir un mensaje MQTT
-
-  if (String(topic) == topicTemp) {  // En caso de recibirse mensaje en el tema esp32/output
-    if(messageTemp == "true"){
-      Serial.println("Mandó mensaje");
+  if (String(topic) == topicLed) {  // En caso de recibirse mensaje en el tema esp32/output
+    if(messageLed == "true"){
+      l=0;
+      Serial.println("PRENDE refrigeración manual desde Dashboard");
     }// fin del if topic 
-    else if(messageTemp == "false"){
-      Serial.println("Sin mensaje");
-    }// fin del else if(messageTemp == "false")
+    if(messageLed == "false"){
+      l=1;
+      Serial.println("APAGA refrigeración manual desde Dashboard");
+    }// fin del if topic 
   }// fin del if topic
 }// fin del void callback
 
+
 // Función para reconectarse
-
-
 void reconnect() {
   // Bucle hasta lograr conexión
   Serial.println("Entre a la función reconect");
@@ -236,7 +263,9 @@ void reconnect() {
     // Intentar reconexión
     if (client.connect("espClient")) { //Pregunta por el resultado del intento de conexión
       Serial.println("Conectado");
-      client.subscribe(topicTemp); // Esta función realiza la suscripción al tema
+      client.subscribe(topicTemp); // Esta función realiza la suscripción al tema temperatura
+      client.subscribe(topicHum);  // Esta función realiza la suscripción al tema humedad
+      client.subscribe(topicLed);  // Esta función realiza la suscripción al tema led
     }// fin del  if (client.connect("espClient"))
     else {  //en caso de que la conexión no se logre
       Serial.print("Conexion fallida, Error rc=");
